@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuMatrix Studio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Client-Side Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.5.207/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.4/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.10.2/Sortable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>DocuMatrix Studio</h1>
+            <p>Scan, adjust, convert, compress, and merge PDF files in standard A4 format.</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('scan')">Scan to A4 PDF</button>
+            <button class="tab-btn" onclick="switchTab('compress')">Compress PDF</button>
+            <button class="tab-btn" onclick="switchTab('merge')">Merge PDFs</button>
+            <button class="tab-btn" onclick="switchTab('img2pdf')">Image to PDF</button>
+        </div>
+
+        <!-- 1. Scan to A4 PDF Tab -->
+        <div id="scan-tab" class="tab-content active">
+            <div class="camera-box">
+                <video id="video" autoplay playsinline></video>
+                <div class="camera-controls" id="camInitialControls">
+                    <button class="btn" id="startCamBtn" onclick="startCamera()">Start Camera</button>
+                    <button class="btn btn-primary" id="captureBtn" onclick="captureFrame()" disabled>Capture & Adjust Page</button>
+                </div>
+
+                <!-- Post-Adjustment Decision Prompt -->
+                <div id="scanDecisionBox" class="scan-decision-box" style="display:none;">
+                    <p id="pageCountText" class="page-count-badge">1 Page Saved</p>
+                    <p class="decision-prompt">What would you like to do next?</p>
+                    <div class="decision-actions">
+                        <button class="btn btn-secondary" onclick="continueScanning()">+ Scan Another Page</button>
+                        <button class="btn btn-primary" onclick="generatePdfFromScan()">Finish & Save A4 PDF</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scanned Previews Strip -->
+            <div class="scan-gallery-header" id="galleryHeader" style="display:none;">
+                <h4>Adjusted Scanned Pages</h4>
+                <button class="btn-link-danger" onclick="resetScanner()">Clear All</button>
+            </div>
+            <div id="scannedPreviews" class="preview-grid"></div>
+        </div>
+
+        <!-- 2. Interactive Image Adjustment Modal -->
+        <div id="adjustModal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Adjust Scanned Page</h3>
+                    <span class="modal-subtitle">Enhance clarity, rotate, or apply document filters before saving</span>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="editor-canvas-container">
+                        <canvas id="editCanvas"></canvas>
+                    </div>
+
+                    <div class="editor-controls">
+                        <div class="control-group">
+                            <label>Document Filter</label>
+                            <div class="filter-btn-group">
+                                <button type="button" class="btn-filter active" onclick="setDocFilter('color')">Original</button>
+                                <button type="button" class="btn-filter" onclick="setDocFilter('grayscale')">Grayscale</button>
+                                <button type="button" class="btn-filter" onclick="setDocFilter('bw')">B&W Text</button>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Orientation</label>
+                            <button type="button" class="btn btn-secondary btn-block" onclick="rotateScanImage()">⟳ Rotate 90°</button>
+                        </div>
+
+                        <div class="control-group">
+                            <label>Brightness: <span id="brightnessVal">100%</span></label>
+                            <input type="range" id="brightnessRange" min="50" max="150" value="100" class="custom-slider" oninput="applyAdjustments()">
+                        </div>
+
+                        <div class="control-group">
+                            <label>Contrast: <span id="contrastVal">100%</span></label>
+                            <input type="range" id="contrastRange" min="50" max="200" value="100" class="custom-slider" oninput="applyAdjustments()">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="discardCurrentScan()">Retake Page</button>
+                    <button class="btn btn-primary" onclick="confirmScanAdjustment()">Apply & Save Page</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Compress PDF Tab -->
+        <div id="compress-tab" class="tab-content">
+            <div class="drop-zone" onclick="document.getElementById('compressInput').click()">
+                <input type="file" id="compressInput" accept="application/pdf" style="display:none" onchange="handleCompressFile(this.files[0])">
+                <p>Click or drag a PDF file to reduce size</p>
+            </div>
+
+            <div id="sliderWrapper" class="slider-wrapper" style="display:none;">
+                <div class="slider-header">
+                    <span class="label">Target Compression:</span>
+                    <span id="sliderValDisplay" class="slider-badge">70% (1000 KB → ~300 KB)</span>
+                </div>
+                <input type="range" id="compressionRange" min="10" max="95" value="70" class="custom-slider" oninput="updateSliderLabel(this.value)">
+                <div class="slider-footer-labels">
+                    <span>Low (High Res)</span>
+                    <span>70% (Standard)</span>
+                    <span>Maximum</span>
+                </div>
+            </div>
+
+            <div id="compressStatusCard" class="status-card" style="display:none;">
+                <div class="status-row">
+                    <span class="label">Original Size:</span>
+                    <span id="originalSizeDisplay" class="val">-</span>
+                </div>
+                <div class="status-row" id="resultRow" style="display:none;">
+                    <span class="label">Compressed Size:</span>
+                    <span id="compressedSizeDisplay" class="val highlight">-</span>
+                </div>
+                <div class="status-row" id="savingRow" style="display:none;">
+                    <span class="label">Space Saved:</span>
+                    <span id="savedDisplay" class="val badge">-</span>
+                </div>
+            </div>
+
+            <button class="btn btn-action" id="compressBtn" onclick="runClientSideCompression()" style="display:none;">Compress & Download</button>
+        </div>
+
+        <!-- 4. Merge PDF Tab -->
+        <div id="merge-tab" class="tab-content">
+            <div class="drop-zone" onclick="document.getElementById('pdfMergeInput').click()">
+                <input type="file" id="pdfMergeInput" multiple accept="application/pdf" style="display:none" onchange="handleMergeFiles(this.files)">
+                <p>Click or drag multiple PDF files to organize and merge</p>
+            </div>
+
+            <div id="mergeListContainer" style="display:none;">
+                <div class="list-header">
+                    <span class="label">Drag items or use arrows to rearrange order:</span>
+                    <button class="btn-link-danger" onclick="clearMergeList()">Clear All</button>
+                </div>
+                <ul id="pdfFileList" class="sortable-file-list"></ul>
+            </div>
+
+            <button class="btn btn-action" id="mergeBtn" onclick="mergePdfs()" style="display:none;">Merge PDFs in this Order</button>
+        </div>
+
+        <!-- 5. Image to PDF Tab -->
+        <div id="img2pdf-tab" class="tab-content">
+            <div class="drop-zone" onclick="document.getElementById('imgInput').click()">
+                <input type="file" id="imgInput" multiple accept="image/*" style="display:none" onchange="handleImgFiles(this.files)">
+                <p>Click or drag images here (JPG, PNG)</p>
+            </div>
+            <div id="imgPreviews" class="preview-grid"></div>
+            <button class="btn btn-action" id="imgConvertBtn" onclick="uploadImagesForPdf()" style="display:none;">Build A4 PDF</button>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
